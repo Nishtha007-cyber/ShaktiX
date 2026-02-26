@@ -1,0 +1,181 @@
+package com.example.shaktix
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.*
+import androidx.appcompat.app.AppCompatActivity
+import kotlin.math.sqrt
+
+class MainActivity : AppCompatActivity(), SensorEventListener {
+
+    private lateinit var sensorManager: SensorManager
+    private var accelerometer: Sensor? = null
+
+    private lateinit var prefs: SharedPreferences
+
+    private var isTriggered = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var sosRunnable: Runnable? = null
+
+    private lateinit var contactNameInput: EditText
+    private lateinit var contactNumberInput: EditText
+    private lateinit var saveContactButton: Button
+    private lateinit var contactText: TextView
+    private lateinit var statusText: TextView
+    private lateinit var locationText: TextView
+    private lateinit var cancelButton: Button
+
+    private var emergencyContactName = "None"
+    private var emergencyContactNumber = "0000000000"
+
+    private val fakeLatitude = 19.9975
+    private val fakeLongitude = 73.7898
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContentView(R.layout.activity_main)
+
+        prefs = getSharedPreferences("SOS_PREF", Context.MODE_PRIVATE)
+
+        bindViews()
+        loadSavedContact()
+
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+        saveContactButton.setOnClickListener {
+            saveContact()
+        }
+
+        cancelButton.setOnClickListener {
+            cancelSOS()
+        }
+    }
+
+    private fun bindViews() {
+        contactNameInput = findViewById(R.id.contactNameInput)
+        contactNumberInput = findViewById(R.id.contactNumberInput)
+        saveContactButton = findViewById(R.id.saveContactButton)
+        contactText = findViewById(R.id.contactText)
+        statusText = findViewById(R.id.statusText)
+        locationText = findViewById(R.id.locationText)
+        cancelButton = findViewById(R.id.cancelButton)
+    }
+
+    private fun saveContact() {
+
+        val name = contactNameInput.text.toString().trim()
+        val number = contactNumberInput.text.toString().trim()
+
+        if (name.isNotEmpty() && number.isNotEmpty()) {
+
+            prefs.edit()
+                .putString("name", name)
+                .putString("number", number)
+                .apply()
+
+            loadSavedContact()
+
+            Toast.makeText(this, "Contact Saved", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Enter Name and Number", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun loadSavedContact() {
+
+        emergencyContactName =
+            prefs.getString("name", "None") ?: "None"
+
+        emergencyContactNumber =
+            prefs.getString("number", "0000000000") ?: "0000000000"
+
+        contactText.text =
+            "Emergency Contact: $emergencyContactName ($emergencyContactNumber)"
+    }
+
+    private fun cancelSOS() {
+
+        sosRunnable?.let { handler.removeCallbacks(it) }
+
+        isTriggered = false
+        cancelButton.visibility = Button.GONE
+
+        statusText.text = "SHAKE PHONE TO ACTIVATE SOS"
+        locationText.text = ""
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        accelerometer?.also {
+            sensorManager.registerListener(
+                this,
+                it,
+                SensorManager.SENSOR_DELAY_NORMAL
+            )
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+
+        sensorManager.unregisterListener(this)
+        sosRunnable?.let { handler.removeCallbacks(it) }
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+
+        if (event == null || isTriggered) return
+
+        val acceleration =
+            sqrt(
+                event.values[0] * event.values[0] +
+                        event.values[1] * event.values[1] +
+                        event.values[2] * event.values[2]
+            )
+
+        if (acceleration > 15) {
+            isTriggered = true
+            triggerSOS()
+        }
+    }
+
+    private fun triggerSOS() {
+
+        statusText.text =
+            "⚠ Shake Detected!\nSending SOS to $emergencyContactName in 5 seconds..."
+
+        cancelButton.visibility = Button.VISIBLE
+
+        sosRunnable = Runnable {
+
+            statusText.text = "✅ Message Sent to $emergencyContactName"
+
+            locationText.text =
+                "📍 Location Sent:\nhttps://maps.google.com/?q=$fakeLatitude,$fakeLongitude"
+
+            println("""
+                🚨 SOS ALERT
+                Contact: $emergencyContactName
+                Number: $emergencyContactNumber
+                Location: https://maps.google.com/?q=$fakeLatitude,$fakeLongitude
+            """.trimIndent())
+
+            cancelButton.visibility = Button.GONE
+            isTriggered = false
+        }
+
+        handler.postDelayed(sosRunnable!!, 5000)
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+}
